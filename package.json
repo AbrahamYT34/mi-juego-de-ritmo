@@ -1,7 +1,7 @@
 {
   "name": "rhythm-legends",
   "version": "1.0.0",
-  "description": "Juego de ritmo multijugador en tiempo real",
+  "description": "Juego de ritmo multijugador",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
