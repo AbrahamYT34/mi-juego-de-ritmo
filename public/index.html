@@ -5,67 +5,140 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Rhythm Legends - Multijugador</title>
   <style>
-    body { margin: 0; background: #1a1a2e; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
-    canvas { border: 2px solid #4a4a8a; border-radius: 10px; }
-    #ui { position: absolute; top: 10px; left: 10px; color: white; display: flex; gap: 20px; }
-    .player-score { background: rgba(0,0,0,0.7); padding: 10px; border-radius: 10px; }
-    #life-bar { width: 200px; height: 15px; background: #333; border-radius: 8px; overflow: hidden; }
-    #life-fill { width: 100%; height: 100%; background: #4caf50; transition: width 0.2s; }
-    #combo { font-size: 48px; font-weight: bold; color: gold; }
+    body {
+      margin: 0;
+      background: #0a0a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: white;
+      overflow: hidden;
+    }
+    #container {
+      width: 800px;
+      height: 600px;
+      position: relative;
+    }
+    canvas {
+      border-radius: 10px;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #ui {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      z-index: 10;
+      display: flex;
+      gap: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 8px 15px;
+      border-radius: 8px;
+    }
+    #song-select {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.9);
+      padding: 30px;
+      border-radius: 20px;
+      text-align: center;
+      z-index: 20;
+    }
+    .song-btn {
+      display: block;
+      margin: 10px auto;
+      padding: 12px 25px;
+      background: #2a2a4a;
+      color: white;
+      border: 2px solid #5a5aaa;
+      border-radius: 10px;
+      font-size: 18px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .song-btn:hover { background: #4a4a8a; }
+    #countdown {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 60px;
+      font-weight: bold;
+      color: gold;
+      z-index: 15;
+      display: none;
+    }
+    .player-score { margin-right: 15px; }
   </style>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <div id="ui">
-    <div class="player-score" id="my-score">Puntos: 0</div>
-    <div>
-      <div id="life-bar"><div id="life-fill"></div></div>
-      <div id="combo">0</div>
+  <div id="container">
+    <canvas id="game" width="800" height="600"></canvas>
+    <div id="song-select">
+      <h2>Elige una canción</h2>
+      <div id="song-list"></div>
+      <p id="waiting-msg" style="display:none;">Esperando a que el host elija...</p>
     </div>
-    <div id="other-scores"></div>
+    <div id="countdown"></div>
+    <div id="ui">
+      <div><span id="my-score">0</span> pts</div>
+      <div>❤️ <span id="life">100</span>%</div>
+      <div>🔥 <span id="combo">0</span></div>
+    </div>
   </div>
 
   <script>
-    // Conexión
-    const WS_URL = `ws://${location.host}`; // automático con express
+    // Conexión segura WSS
+    const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const WS_URL = protocol + location.host;
     let socket;
     let playerId;
+    let gameState = 'lobby';
+    let currentSong = null;
     let songStartTime = 0;
     let noteMap = [];
+    let notesToRender = [];
+    let score = 0, combo = 0, life = 100;
     let audioCtx;
     let gameRunning = false;
+    let countdownInterval;
+    let selectedSongId = null;
 
-    // Configuración de carriles
+    // Carriles
     const LANES = 4;
     const LANE_COLORS = ['#FF6B6B','#4ECDC4','#FFE66D','#FF9FF3'];
-    const LANE_WIDTH = 80;
-    const LANE_X = [200, 280, 360, 440]; // posiciones X en canvas 800x600
+    const LANE_X = [200, 280, 360, 440];
     const HIT_ZONE_Y = 500;
-    const NOTE_SPEED = 0.3; // píxeles por ms (ajustar)
+    const NOTE_SPEED = 0.3;
 
-    // Elementos visuales
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
-    canvas.width = 800;
-    canvas.height = 600;
+    const effects = [];
 
-    // Estado del jugador local
-    let score = 0, combo = 0, life = 100;
-    let notesToRender = [];
-    let effects = [];
-
-    // Iniciar conexión
+    // Conectar
     function connect() {
       socket = new WebSocket(WS_URL);
-      socket.onopen = () => {
-        socket.send(JSON.stringify({ type: 'join', room: 'sala1' }));
-      };
+      socket.onopen = () => console.log('Conectado');
       socket.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         switch (msg.type) {
-          case 'joined':
-            playerId = msg.playerId;
-            document.getElementById('my-score').style.color = LANE_COLORS[0]; // decorativo
+          case 'songList':
+            buildSongSelect(msg.songs);
+            break;
+          case 'gameState':
+            gameState = msg.state;
+            currentSong = msg.currentSong;
+            updateUIState();
+            break;
+          case 'songSelected':
+            // Otro jugador eligió canción
+            currentSong = msg.song;
+            document.getElementById('song-select').style.display = 'none';
             break;
           case 'start':
             songStartTime = msg.startTime;
@@ -73,89 +146,96 @@
             startGame();
             break;
           case 'hitResult':
-            updateScores(msg);
+            updateRemotePlayer(msg);
             break;
           case 'playerList':
-            updatePlayerList(msg.players);
+            // Actualizar lista de puntuaciones
+            break;
+          case 'gameOver':
+            gameRunning = false;
+            document.getElementById('countdown').style.display = 'none';
             break;
         }
       };
       socket.onclose = () => setTimeout(connect, 3000);
     }
 
+    function buildSongSelect(songs) {
+      const list = document.getElementById('song-list');
+      list.innerHTML = '';
+      songs.forEach(song => {
+        const btn = document.createElement('button');
+        btn.className = 'song-btn';
+        btn.textContent = `${song.title} (${song.genre}) - ${Math.floor(song.duration/1000)}s`;
+        btn.onclick = () => {
+          socket.send(JSON.stringify({ type: 'selectSong', songId: song.id }));
+          selectedSongId = song.id;
+          document.getElementById('song-select').style.display = 'none';
+          document.getElementById('countdown').style.display = 'block';
+          startCountdown(5);
+        };
+        list.appendChild(btn);
+      });
+      // Si ya hay estado de juego, ocultar selección
+      if (gameState !== 'lobby') {
+        document.getElementById('song-select').style.display = 'none';
+      }
+    }
+
+    function startCountdown(seconds) {
+      let remaining = seconds;
+      const countdownEl = document.getElementById('countdown');
+      countdownEl.textContent = remaining;
+      countdownEl.style.display = 'block';
+      countdownInterval = setInterval(() => {
+        remaining--;
+        countdownEl.textContent = remaining > 0 ? remaining : '¡GO!';
+        if (remaining <= 0) {
+          clearInterval(countdownInterval);
+          setTimeout(() => countdownEl.style.display = 'none', 500);
+        }
+      }, 1000);
+    }
+
     function startGame() {
       gameRunning = true;
+      notesToRender = noteMap.map(n => ({
+        ...n,
+        x: LANE_X[n.lane],
+        y: HIT_ZONE_Y - (n.time * NOTE_SPEED),
+        hit: false,
+        startTime: songStartTime + n.time,
+        visible: true
+      }));
       startAudio();
-      // Sincronizar inicio: esperar a que songStartTime sea futuro
-      const now = Date.now();
-      const delay = songStartTime - now;
-      if (delay > 0) {
-        setTimeout(() => {
-          // empezar a generar notas visuales basadas en noteMap
-          generateVisualNotes();
-        }, delay);
-      } else {
-        generateVisualNotes();
-      }
     }
 
-    function generateVisualNotes() {
-      noteMap.forEach(note => {
-        notesToRender.push({
-          ...note,
-          x: LANE_X[note.lane],
-          y: HIT_ZONE_Y - (note.time * NOTE_SPEED), // posición inicial arriba
-          hit: false,
-          startTime: songStartTime + note.time,
-          visible: true,
-          holding: false
-        });
-      });
-    }
-
-    // Audio sintetizado (ritmo base)
     function startAudio() {
+      if (audioCtx) audioCtx.close();
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // Creamos un loop de batería simple
-      const beatInterval = 500; // ms
-      function playBeat() {
+      const bpm = 140; // se podría obtener de la canción actual
+      const beatInterval = 60000 / bpm / 4; // semicorchea
+      let beatIndex = 0;
+      function playTick() {
         if (!gameRunning) return;
         const now = audioCtx.currentTime;
-        // Bombo
-        const kick = audioCtx.createOscillator();
-        const kickGain = audioCtx.createGain();
-        kick.connect(kickGain);
-        kickGain.connect(audioCtx.destination);
-        kick.type = 'sine';
-        kick.frequency.setValueAtTime(150, now);
-        kick.frequency.exponentialRampToValueAtTime(30, now + 0.1);
-        kickGain.gain.setValueAtTime(0.5, now);
-        kickGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-        kick.start(now);
-        kick.stop(now + 0.2);
-
-        // Hi-hat cada 250ms
-        const hihat = audioCtx.createOscillator();
-        const hihatGain = audioCtx.createGain();
-        hihat.connect(hihatGain);
-        hihatGain.connect(audioCtx.destination);
-        hihat.type = 'square';
-        hihat.frequency.value = 3000;
-        hihatGain.gain.setValueAtTime(0.1, now);
-        hihatGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
-        hihat.start(now);
-        hihat.stop(now + 0.05);
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 800 + Math.sin(beatIndex * 0.3) * 200;
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        osc.start(now);
+        osc.stop(now + 0.05);
+        beatIndex++;
       }
-      // Iniciar el loop al compás del beat
-      const now = Date.now();
-      const nextBeat = Math.ceil(now / beatInterval) * beatInterval;
-      setTimeout(() => {
-        playBeat();
-        setInterval(playBeat, beatInterval);
-      }, nextBeat - now);
+      playTick();
+      setInterval(playTick, beatInterval);
     }
 
-    // Manejar entradas de teclado
+    // Controles
     const keyMap = { 'd': 0, 'f': 1, 'j': 2, 'k': 3 };
     window.addEventListener('keydown', (e) => {
       if (!gameRunning) return;
@@ -166,16 +246,14 @@
         if (note) {
           note.hit = true;
           const diff = now - note.startTime;
-          let judgement = '';
-          if (Math.abs(diff) < 50) judgement = 'perfect';
-          else if (Math.abs(diff) < 100) judgement = 'great';
-          else judgement = 'good';
-          socket.send(JSON.stringify({ type: 'hit', lane, type: note.type, judgement }));
+          let judgement = Math.abs(diff) < 50 ? 'perfect' : Math.abs(diff) < 100 ? 'great' : 'good';
+          socket.send(JSON.stringify({ type: 'hit', lane, type: note.type }));
           showHitEffect(lane, judgement);
+          updateLocalScore(judgement);
         } else {
-          // fallo
           socket.send(JSON.stringify({ type: 'hit', lane, type: 'miss' }));
           showHitEffect(lane, 'miss');
+          updateLocalScore('miss');
         }
         e.preventDefault();
       }
@@ -183,72 +261,52 @@
 
     function showHitEffect(lane, judgement) {
       effects.push({ lane, judgement, time: Date.now() });
-      if (judgement === 'perfect' || judgement === 'great') {
-        combo++;
-        if (judgement === 'perfect') score += 1000 + combo * 100;
-        else score += 500 + combo * 50;
-      } else if (judgement === 'good') {
-        combo = 0;
-        score += 200;
-      } else {
-        combo = 0;
-        life = Math.max(0, life - 10);
+    }
+
+    function updateLocalScore(judgement) {
+      switch (judgement) {
+        case 'perfect': combo++; score += 1000 + combo * 100; break;
+        case 'great': combo++; score += 500 + combo * 50; break;
+        case 'good': combo = 0; score += 200; break;
+        case 'miss': combo = 0; life = Math.max(0, life - 10); break;
       }
-      updateLocalUI();
+      updateUI();
     }
 
-    function updateLocalUI() {
-      document.getElementById('my-score').textContent = `Puntos: ${score}`;
-      document.getElementById('combo').textContent = combo;
-      document.getElementById('life-fill').style.width = life + '%';
-    }
-
-    function updateScores(msg) {
+    function updateRemotePlayer(msg) {
       if (msg.playerId === playerId) {
         score = msg.score;
         combo = msg.combo;
         life = msg.life;
-        updateLocalUI();
-      } else {
-        // actualizar puntuación de otros jugadores
-        const otherDiv = document.getElementById('other-scores');
-        let otherHTML = '';
-        // (guardar datos de otros jugadores en un objeto)
-        if (!window.otherPlayers) window.otherPlayers = {};
-        window.otherPlayers[msg.playerId] = { score: msg.score, combo: msg.combo };
-        for (const id in window.otherPlayers) {
-          otherHTML += `<div class="player-score">${id}: ${window.otherPlayers[id].score}</div>`;
-        }
-        otherDiv.innerHTML = otherHTML;
+        updateUI();
       }
     }
 
-    function updatePlayerList(players) {
-      window.otherPlayers = {};
-      players.forEach(p => {
-        if (p.id !== playerId) window.otherPlayers[p.id] = { score: p.score, combo: p.combo };
-      });
+    function updateUI() {
+      document.getElementById('my-score').textContent = score;
+      document.getElementById('combo').textContent = combo;
+      document.getElementById('life').textContent = life;
     }
 
-    // Renderizado principal
+    function updateUIState() {
+      if (gameState !== 'lobby') {
+        document.getElementById('song-select').style.display = 'none';
+      }
+    }
+
     function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // Fondo
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      // Líneas de carril
+      ctx.clearRect(0, 0, 800, 600);
+      // Carriles
       for (let i = 0; i < LANES; i++) {
-        ctx.strokeStyle = LANE_COLORS[i] + '55';
+        ctx.strokeStyle = LANE_COLORS[i] + '44';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(LANE_X[i], 0);
-        ctx.lineTo(LANE_X[i], canvas.height);
+        ctx.lineTo(LANE_X[i], 600);
         ctx.stroke();
-        // Zona de impacto
         ctx.fillStyle = LANE_COLORS[i] + 'AA';
         ctx.fillRect(LANE_X[i] - 20, HIT_ZONE_Y - 5, 40, 10);
       }
-
       // Notas
       const now = Date.now();
       notesToRender.forEach(note => {
@@ -256,14 +314,13 @@
         const elapsed = now - songStartTime;
         const noteTime = note.time;
         const y = HIT_ZONE_Y - (noteTime - elapsed) * NOTE_SPEED;
-        if (y < -50 || y > canvas.height + 50) return;
+        if (y < -50 || y > 650) return;
         ctx.fillStyle = LANE_COLORS[note.lane];
         if (note.type === 'tap') {
           ctx.fillRect(note.x - 15, y - 5, 30, 10);
         } else if (note.type === 'hold') {
-          const holdDuration = note.duration;
-          const endY = HIT_ZONE_Y - (noteTime + holdDuration - elapsed) * NOTE_SPEED;
-          ctx.fillRect(note.x - 15, y - 5, 30, endY - y + 10);
+          const endY = HIT_ZONE_Y - (noteTime + note.duration - elapsed) * NOTE_SPEED;
+          ctx.fillRect(note.x - 15, y - 5, 30, Math.max(10, endY - y + 10));
         } else if (note.type === 'flick') {
           ctx.beginPath();
           ctx.moveTo(note.x - 15, y - 5);
@@ -273,23 +330,20 @@
           ctx.fill();
         }
       });
-
       // Efectos
-      effects = effects.filter(e => Date.now() - e.time < 300);
       effects.forEach(e => {
-        ctx.font = '24px Arial';
+        ctx.font = 'bold 20px Arial';
         ctx.fillStyle = e.judgement === 'perfect' ? 'gold' : e.judgement === 'great' ? 'lime' : e.judgement === 'good' ? 'orange' : 'red';
-        ctx.fillText(e.judgement.toUpperCase(), LANE_X[e.lane] - 20, HIT_ZONE_Y - 30);
+        ctx.fillText(e.judgement.toUpperCase(), LANE_X[e.lane] - 25, HIT_ZONE_Y - 40);
       });
-
-      // Combo grande
-      ctx.font = 'bold 48px Arial';
-      ctx.fillStyle = 'white';
-      ctx.shadowColor = 'black';
-      ctx.shadowBlur = 10;
-      ctx.fillText(combo > 0 ? combo + ' COMBO' : '', 300, 100);
-      ctx.shadowBlur = 0;
-
+      // Combo
+      if (combo >= 10) {
+        ctx.font = 'bold 40px Arial';
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 15;
+        ctx.fillText(`${combo} COMBO`, 300, 80);
+        ctx.shadowBlur = 0;
+      }
       requestAnimationFrame(draw);
     }
 
