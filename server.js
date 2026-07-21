@@ -7,112 +7,191 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Servir archivos estáticos (el juego)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- Estado del juego ---
-const ROOM_SIZE = 4;
-let players = new Map(); // ws -> { id, room, score, combo, life, ... }
-let rooms = new Map();   // roomName -> { players: [], songStartTime: 0, noteMap: [] }
+// --- Canciones disponibles ---
+const songs = [
+  {
+    id: 'song1',
+    title: 'Neon Rush',
+    duration: 25000, // 25 segundos
+    bpm: 140,
+    genre: 'electro',
+    noteMap: generateNoteMap(25000, 0.4, 0.3, 0.3) // tap, hold, flick
+  },
+  {
+    id: 'song2',
+    title: 'Crystal Dreams',
+    duration: 30000,
+    bpm: 120,
+    genre: 'pop',
+    noteMap: generateNoteMap(30000, 0.5, 0.2, 0.3)
+  },
+  {
+    id: 'song3',
+    title: 'Inferno',
+    duration: 20000,
+    bpm: 160,
+    genre: 'rock',
+    noteMap: generateNoteMap(20000, 0.3, 0.4, 0.3)
+  },
+  {
+    id: 'song4',
+    title: 'Stellar Wave',
+    duration: 35000,
+    bpm: 100,
+    genre: 'ambient',
+    noteMap: generateNoteMap(35000, 0.6, 0.1, 0.3)
+  }
+];
 
-// Notas predefinidas para la canción (duración 30 seg)
-const noteMap = [];
-// Generamos una secuencia de notas (lane: 0-3, type: 'tap','hold','flick', time: ms)
-// Usamos un patrón de batería simple: cada 500ms una nota, alternando carriles.
-for (let t = 1000; t <= 30000; t += 500) {
-  const lane = Math.floor(Math.random() * 4);
-  const type = Math.random() < 0.7 ? 'tap' : Math.random() < 0.5 ? 'hold' : 'flick';
-  noteMap.push({ lane, type, time: t, duration: type === 'hold' ? 400 : 0 });
+// Generador de mapas de notas (patrones pseudoaleatorios)
+function generateNoteMap(durationMs, tapRatio, holdRatio, flickRatio) {
+  const notes = [];
+  const interval = 400; // ms entre notas base
+  let time = 1000;
+  while (time < durationMs - 1000) {
+    const lane = Math.floor(Math.random() * 4);
+    const rand = Math.random();
+    let type;
+    if (rand < tapRatio) type = 'tap';
+    else if (rand < tapRatio + holdRatio) type = 'hold';
+    else type = 'flick';
+    const holdDuration = type === 'hold' ? 300 + Math.floor(Math.random() * 400) : 0;
+    notes.push({ lane, type, time, duration: holdDuration });
+    time += interval * (0.8 + Math.random() * 0.5);
+  }
+  return notes;
 }
 
-// WebSocket
+// --- Salas y estado del juego ---
+let currentSong = null;      // canción seleccionada
+let players = new Map();     // ws -> player
+let gameState = 'lobby';    // 'lobby', 'countdown', 'playing', 'results'
+let songStartTime = 0;
+let hostWs = null;
+
+function broadcast(msg, excludeWs = null) {
+  const data = JSON.stringify(msg);
+  wss.clients.forEach(client => {
+    if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
+}
+
+function sendTo(ws, msg) {
+  ws.send(JSON.stringify(msg));
+}
+
+function resetGame() {
+  gameState = 'lobby';
+  currentSong = null;
+  songStartTime = 0;
+  players.forEach(p => {
+    p.score = 0; p.combo = 0; p.life = 100; p.perfect = 0; p.great = 0; p.good = 0; p.miss = 0;
+  });
+  hostWs = null;
+}
+
 wss.on('connection', (ws) => {
+  const playerId = Math.random().toString(36).substr(2, 6);
+  const player = {
+    id: playerId,
+    ws,
+    score: 0,
+    combo: 0,
+    maxCombo: 0,
+    life: 100,
+    perfect: 0,
+    great: 0,
+    good: 0,
+    miss: 0,
+    alive: true
+  };
+  players.set(ws, player);
+
+  // Enviar lista de canciones y estado actual
+  sendTo(ws, { type: 'songList', songs: songs.map(s => ({ id: s.id, title: s.title, duration: s.duration, bpm: s.bpm, genre: s.genre })) });
+  sendTo(ws, { type: 'gameState', state: gameState, currentSong: currentSong?.id });
+
+  // Si el juego ya está en marcha, enviar datos actuales
+  if (gameState === 'playing' && currentSong) {
+    sendTo(ws, { type: 'start', startTime: songStartTime, noteMap: currentSong.noteMap });
+  }
+
   ws.on('message', (data) => {
     const msg = JSON.parse(data);
     switch (msg.type) {
-      case 'join':
-        const roomName = msg.room || 'default';
-        if (!rooms.has(roomName)) {
-          rooms.set(roomName, { players: [], songStartTime: 0, noteMap });
-        }
-        const room = rooms.get(roomName);
-        if (room.players.length >= ROOM_SIZE) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Sala llena' }));
-          return;
-        }
-        const playerId = Math.random().toString(36).substr(2, 6);
-        const player = {
-          id: playerId,
-          ws,
-          room: roomName,
-          score: 0,
-          combo: 0,
-          maxCombo: 0,
-          life: 100,
-          perfect: 0,
-          great: 0,
-          good: 0,
-          miss: 0,
-        };
-        room.players.push(player);
-        players.set(ws, player);
-
-        // Enviar asignación de carril (cada jugador usa los mismos 4 carriles, pero su color)
-        ws.send(JSON.stringify({ type: 'joined', playerId, laneColors: ['#FF6B6B','#4ECDC4','#FFE66D','#FF9FF3'] }));
-        broadcastRoom(roomName, { type: 'playerList', players: room.players.map(p => ({ id: p.id, score: p.score, combo: p.combo, life: p.life })) });
-
-        // Si hay suficientes jugadores y no ha iniciado, iniciar después de cuenta atrás
-        if (room.players.length >= 1 && !room.songStartTime) {
-          startGame(roomName);
+      case 'selectSong':
+        if (gameState === 'lobby' && !currentSong) {
+          const song = songs.find(s => s.id === msg.songId);
+          if (song) {
+            currentSong = song;
+            hostWs = ws;
+            // Notificar a todos que se seleccionó una canción y empezar cuenta atrás
+            broadcast({ type: 'songSelected', song: { id: song.id, title: song.title, duration: song.duration } });
+            gameState = 'countdown';
+            const countdown = 5000;
+            setTimeout(() => {
+              if (gameState === 'countdown' && currentSong) {
+                songStartTime = Date.now() + 2000; // pequeño margen
+                gameState = 'playing';
+                broadcast({ type: 'start', startTime: songStartTime, noteMap: currentSong.noteMap });
+                // Al terminar la canción, volver al lobby
+                setTimeout(() => {
+                  if (gameState === 'playing') {
+                    broadcast({ type: 'gameOver' });
+                    resetGame();
+                    broadcast({ type: 'gameState', state: 'lobby', currentSong: null });
+                  }
+                }, currentSong.duration + 3000);
+              }
+            }, countdown);
+            broadcast({ type: 'gameState', state: 'countdown', countdown, currentSong: song.id });
+          }
         }
         break;
 
       case 'hit':
         handleHit(ws, msg);
         break;
-
-      case 'start':
-        // solo el host puede iniciar? por ahora omitimos.
-        break;
     }
   });
 
   ws.on('close', () => {
-    const player = players.get(ws);
-    if (player) {
-      players.delete(ws);
-      const room = rooms.get(player.room);
-      if (room) {
-        room.players = room.players.filter(p => p.id !== player.id);
-        broadcastRoom(player.room, { type: 'playerList', players: room.players.map(p => ({ id: p.id, score: p.score, combo: p.combo, life: p.life })) });
-        if (room.players.length === 0) {
-          rooms.delete(player.room);
-        }
-      }
+    players.delete(ws);
+    if (players.size === 0) {
+      resetGame();
     }
+    broadcast({ type: 'playerList', players: getPlayerList() });
+    if (hostWs === ws) hostWs = null;
   });
+
+  // Enviar lista inicial de jugadores
+  broadcast({ type: 'playerList', players: getPlayerList() });
 });
 
-function startGame(roomName) {
-  const room = rooms.get(roomName);
-  if (!room) return;
-  const startDelay = 3000; // cuenta atrás
-  room.songStartTime = Date.now() + startDelay;
-  broadcastRoom(roomName, { type: 'start', startTime: room.songStartTime, noteMap: room.noteMap });
+function getPlayerList() {
+  return Array.from(players.values()).map(p => ({
+    id: p.id,
+    score: p.score,
+    combo: p.combo,
+    life: p.life,
+    alive: p.alive
+  }));
 }
 
 function handleHit(ws, msg) {
   const player = players.get(ws);
-  if (!player) return;
-  const room = rooms.get(player.room);
-  if (!room || !room.songStartTime) return;
+  if (!player || gameState !== 'playing' || !currentSong) return;
 
-  const now = Date.now();
-  const { lane, type } = msg; // type: 'tap' o 'flick' (hold se maneja con inicio/fin)
-  // Buscar la nota más cercana en ese carril dentro de una ventana de tiempo
-  const note = room.noteMap.find(n => n.lane === lane && !n.hit && Math.abs(now - room.songStartTime - n.time) < 150);
+  const { lane, type } = msg;
+  const note = currentSong.noteMap.find(n =>
+    n.lane === lane && !n.hit && Math.abs(Date.now() - songStartTime - n.time) < 200
+  );
   if (note) {
-    const diff = now - room.songStartTime - note.time;
+    const diff = Date.now() - songStartTime - note.time;
     let judgement = '';
     if (Math.abs(diff) < 50) {
       judgement = 'perfect';
@@ -132,24 +211,15 @@ function handleHit(ws, msg) {
     }
     if (player.combo > player.maxCombo) player.maxCombo = player.combo;
     note.hit = true;
-    broadcastRoom(player.room, { type: 'hitResult', playerId: player.id, judgement, combo: player.combo, score: player.score, life: player.life });
+    broadcast({ type: 'hitResult', playerId: player.id, judgement, combo: player.combo, score: player.score, life: player.life });
   } else {
-    // fallo (miss)
+    // Miss
     player.combo = 0;
     player.miss++;
     player.life = Math.max(0, player.life - 10);
-    broadcastRoom(player.room, { type: 'hitResult', playerId: player.id, judgement: 'miss', combo: 0, score: player.score, life: player.life });
+    broadcast({ type: 'hitResult', playerId: player.id, judgement: 'miss', combo: 0, score: player.score, life: player.life });
   }
 }
 
-function broadcastRoom(roomName, msg) {
-  const room = rooms.get(roomName);
-  if (!room) return;
-  const data = JSON.stringify(msg);
-  room.players.forEach(p => {
-    if (p.ws.readyState === WebSocket.OPEN) p.ws.send(data);
-  });
-}
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Rhythm Legends corriendo en puerto ${PORT}`));
+server.listen(PORT, () => console.log(`Servidor de ritmo listo en puerto ${PORT}`));
