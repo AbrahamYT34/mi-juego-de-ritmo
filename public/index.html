@@ -3,352 +3,505 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Rhythm Legends - Multijugador</title>
+  <title>Rhythm Legends - Project Sekai Edition</title>
   <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      margin: 0;
-      background: #0a0a1a;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      font-family: 'Segoe UI', sans-serif;
-      color: white;
-      overflow: hidden;
+      background: #0a0a1a; font-family: 'Arial', sans-serif;
+      display: flex; justify-content: center; align-items: center;
+      height: 100vh; overflow: hidden; user-select: none;
     }
-    #container {
-      width: 800px;
-      height: 600px;
-      position: relative;
+    #game-container {
+      width: 900px; height: 600px; position: relative;
+      border-radius: 15px; box-shadow: 0 0 30px #000; overflow: hidden;
     }
-    canvas {
-      border-radius: 10px;
-      position: absolute;
-      top: 0;
-      left: 0;
+    canvas { display: block; }
+    #ui-layer {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
     }
-    #ui {
-      position: absolute;
-      bottom: 10px;
-      left: 10px;
-      z-index: 10;
-      display: flex;
-      gap: 20px;
-      background: rgba(0,0,0,0.7);
-      padding: 8px 15px;
-      border-radius: 8px;
+    /* Pantallas */
+    .screen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.9); color: white; z-index: 20; pointer-events: auto;
     }
-    #song-select {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(0,0,0,0.9);
-      padding: 30px;
-      border-radius: 20px;
-      text-align: center;
-      z-index: 20;
+    .btn {
+      padding: 15px 40px; background: #ff2a6d; color: white; border: none;
+      border-radius: 25px; font-size: 20px; cursor: pointer; margin: 10px;
+      transition: 0.2s; text-transform: uppercase; letter-spacing: 1px;
     }
-    .song-btn {
-      display: block;
-      margin: 10px auto;
-      padding: 12px 25px;
-      background: #2a2a4a;
-      color: white;
-      border: 2px solid #5a5aaa;
-      border-radius: 10px;
-      font-size: 18px;
-      cursor: pointer;
-      transition: 0.2s;
+    .btn:hover { background: #ff4d8c; transform: scale(1.05); }
+    .btn.secondary { background: #4ecdc4; }
+    .btn.secondary:hover { background: #6ee0d7; }
+    .song-card {
+      width: 180px; height: 200px; background: #1e1e3a; margin: 10px;
+      border-radius: 12px; display: inline-flex; flex-direction: column;
+      align-items: center; justify-content: center; cursor: pointer;
+      border: 2px solid transparent; transition: 0.2s;
     }
-    .song-btn:hover { background: #4a4a8a; }
+    .song-card:hover { border-color: white; transform: scale(1.05); }
+    .song-card .color-bar { width: 100%; height: 8px; border-radius: 8px 8px 0 0; }
     #countdown {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 60px;
-      font-weight: bold;
-      color: gold;
-      z-index: 15;
-      display: none;
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      font-size: 80px; font-weight: bold; color: #fff; text-shadow: 0 0 20px #ff2a6d;
+      display: none; z-index: 15;
     }
-    .player-score { margin-right: 15px; }
+    .hit-effect {
+      position: absolute; font-weight: bold; animation: hitAnim 0.5s ease-out; pointer-events: none;
+    }
+    @keyframes hitAnim { 0% { transform: scale(1.5); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
   </style>
 </head>
 <body>
-  <div id="container">
-    <canvas id="game" width="800" height="600"></canvas>
-    <div id="song-select">
-      <h2>Elige una canción</h2>
-      <div id="song-list"></div>
-      <p id="waiting-msg" style="display:none;">Esperando a que el host elija...</p>
-    </div>
-    <div id="countdown"></div>
-    <div id="ui">
-      <div><span id="my-score">0</span> pts</div>
-      <div>❤️ <span id="life">100</span>%</div>
-      <div>🔥 <span id="combo">0</span></div>
+  <div id="game-container">
+    <canvas id="gameCanvas" width="900" height="600"></canvas>
+    <div id="ui-layer">
+      <!-- Pantalla de selección de modo -->
+      <div id="mode-screen" class="screen">
+        <h1 style="font-size:48px; margin-bottom:10px;">🎵 Rhythm Legends</h1>
+        <p style="margin-bottom:30px;">Project Sekai Edition</p>
+        <button class="btn" id="solo-btn">🎵 Un Jugador</button>
+        <button class="btn secondary" id="multi-btn">👥 Multijugador</button>
+      </div>
+
+      <!-- Pantalla de lobby (multijugador) -->
+      <div id="lobby" class="screen" style="display:none;">
+        <h2>🌐 Sala Multijugador</h2>
+        <p>Selecciona una canción (solo el primer jugador puede iniciar)</p>
+        <div id="song-list" style="display:flex; flex-wrap:wrap; justify-content:center;"></div>
+        <div id="custom-upload" style="margin-top:20px;">
+          <p>O sube tu propia canción:</p>
+          <input type="file" id="mp3-upload" accept=".mp3" style="margin:5px;">
+          <input type="number" id="bpm-input" placeholder="BPM" min="60" max="220" style="width:80px; margin:5px;">
+          <input type="number" id="duration-input" placeholder="Segundos" min="10" max="600" style="width:80px; margin:5px;">
+          <button id="upload-btn" class="btn" style="padding:10px 20px; font-size:14px;">Subir y empezar</button>
+        </div>
+        <button id="leave-lobby" class="btn" style="background:#555; margin-top:15px;">Volver</button>
+      </div>
+
+      <!-- Pantalla de selección de canción (modo solo) -->
+      <div id="solo-lobby" class="screen" style="display:none;">
+        <h2>🎧 Modo Solo</h2>
+        <p>Elige una canción y ¡a jugar!</p>
+        <div id="solo-song-list" style="display:flex; flex-wrap:wrap; justify-content:center;"></div>
+        <button id="leave-solo" class="btn" style="background:#555; margin-top:15px;">Volver</button>
+      </div>
+
+      <!-- Resultados -->
+      <div id="results" class="screen" style="display:none;">
+        <h1>🎉 Resultados</h1>
+        <div id="results-content"></div>
+        <button id="back-to-menu" class="btn" style="margin-top:20px;">Volver al menú</button>
+      </div>
+
+      <!-- Cuenta atrás y marcador durante el juego -->
+      <div id="countdown"></div>
+      <div id="score-display" style="position:absolute; top:10px; left:10px; color:white; font-size:18px; background:rgba(0,0,0,0.6); padding:5px 10px; border-radius:5px; display:none;"></div>
+      <div id="hit-effects" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></div>
     </div>
   </div>
 
   <script>
-    // Conexión segura WSS
-    const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const WS_URL = protocol + location.host;
-    let socket;
-    let playerId;
-    let gameState = 'lobby';
+    // ==================== CONFIGURACIÓN ====================
+    const WS_URL = `${location.protocol === 'https:' ? 'wss://' : 'ws://'}${location.host}`;
+    const LANES = 4;
+    const LANE_X = [240, 320, 400, 480];
+    const HIT_ZONE_Y = 520;
+    const NOTE_SPEED = 0.35;
+
+    // Variables globales
+    let socket = null;
+    let playerId = null;
+    let gameMode = null; // 'solo' o 'multi'
     let currentSong = null;
     let songStartTime = 0;
     let noteMap = [];
     let notesToRender = [];
-    let score = 0, combo = 0, life = 100;
-    let audioCtx;
+    let score, combo, life, maxCombo, perfect, great, good, miss;
+    let audioCtx, audioBuffer, audioSource, startTimeOffset;
+    let gameLoop;
     let gameRunning = false;
-    let countdownInterval;
-    let selectedSongId = null;
 
-    // Carriles
-    const LANES = 4;
-    const LANE_COLORS = ['#FF6B6B','#4ECDC4','#FFE66D','#FF9FF3'];
-    const LANE_X = [200, 280, 360, 440];
-    const HIT_ZONE_Y = 500;
-    const NOTE_SPEED = 0.3;
-
-    const canvas = document.getElementById('game');
+    // Elementos canvas y contexto
+    const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    const effects = [];
 
-    // Conectar
-    function connect() {
-      socket = new WebSocket(WS_URL);
-      socket.onopen = () => console.log('Conectado');
-      socket.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-          case 'songList':
-            buildSongSelect(msg.songs);
-            break;
-          case 'gameState':
-            gameState = msg.state;
-            currentSong = msg.currentSong;
-            updateUIState();
-            break;
-          case 'songSelected':
-            // Otro jugador eligió canción
-            currentSong = msg.song;
-            document.getElementById('song-select').style.display = 'none';
-            break;
-          case 'start':
-            songStartTime = msg.startTime;
-            noteMap = msg.noteMap;
-            startGame();
-            break;
-          case 'hitResult':
-            updateRemotePlayer(msg);
-            break;
-          case 'playerList':
-            // Actualizar lista de puntuaciones
-            break;
-          case 'gameOver':
-            gameRunning = false;
-            document.getElementById('countdown').style.display = 'none';
-            break;
-        }
-      };
-      socket.onclose = () => setTimeout(connect, 3000);
+    // ==================== CANCIONES PREDEFINIDAS ====================
+    const predefinedSongs = [
+      { id:'neon', title:'Neon Rush', artist:'Kubbi', duration:28000, bpm:150, genre:'Electro', color:'#ff2a6d', file:'/songs/neon.mp3' },
+      { id:'crystal', title:'Crystal Dreams', artist:'Daystar', duration:32000, bpm:128, genre:'Pop', color:'#4ecdc4', file:'/songs/crystal.mp3' },
+      { id:'inferno', title:'Inferno', artist:'AlexiAction', duration:22000, bpm:175, genre:'Rock', color:'#ff6b35', file:'/songs/inferno.mp3' },
+      { id:'stellar', title:'Stellar Wave', artist:'Alexander Nakarada', duration:35000, bpm:105, genre:'Ambient', color:'#c77dff', file:'/songs/stellar.mp3' }
+    ];
+
+    // ==================== INTERFAZ ====================
+    function showScreen(screenId) {
+      document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+      if (screenId) document.getElementById(screenId).style.display = 'flex';
     }
 
-    function buildSongSelect(songs) {
-      const list = document.getElementById('song-list');
-      list.innerHTML = '';
-      songs.forEach(song => {
-        const btn = document.createElement('button');
-        btn.className = 'song-btn';
-        btn.textContent = `${song.title} (${song.genre}) - ${Math.floor(song.duration/1000)}s`;
-        btn.onclick = () => {
-          socket.send(JSON.stringify({ type: 'selectSong', songId: song.id }));
-          selectedSongId = song.id;
-          document.getElementById('song-select').style.display = 'none';
-          document.getElementById('countdown').style.display = 'block';
-          startCountdown(5);
-        };
-        list.appendChild(btn);
+    // Botones modo
+    document.getElementById('solo-btn').addEventListener('click', () => {
+      gameMode = 'solo';
+      showSoloLobby();
+    });
+    document.getElementById('multi-btn').addEventListener('click', () => {
+      gameMode = 'multi';
+      connectToServer();
+    });
+    document.getElementById('leave-lobby').addEventListener('click', () => {
+      if (socket) socket.close();
+      showScreen('mode-screen');
+      gameMode = null;
+    });
+    document.getElementById('leave-solo').addEventListener('click', () => {
+      showScreen('mode-screen');
+      gameMode = null;
+    });
+    document.getElementById('back-to-menu').addEventListener('click', () => {
+      showScreen('mode-screen');
+      stopAudio();
+      gameRunning = false;
+    });
+
+    // ==================== MODO SOLO ====================
+    function showSoloLobby() {
+      showScreen('solo-lobby');
+      const listDiv = document.getElementById('solo-song-list');
+      listDiv.innerHTML = '';
+      predefinedSongs.forEach(song => {
+        const card = document.createElement('div');
+        card.className = 'song-card';
+        card.innerHTML = `
+          <div class="color-bar" style="background:${song.color}"></div>
+          <div style="padding:10px; text-align:center;">
+            <b>${song.title}</b><br>
+            <small>${song.artist}</small><br>
+            <small>${Math.floor(song.duration/1000)}s | ${song.bpm}BPM</small>
+          </div>
+        `;
+        card.onclick = () => startSoloGame(song);
+        listDiv.appendChild(card);
       });
-      // Si ya hay estado de juego, ocultar selección
-      if (gameState !== 'lobby') {
-        document.getElementById('song-select').style.display = 'none';
+    }
+
+    async function startSoloGame(song) {
+      // Obtener mapa de notas del servidor o generarlo localmente
+      currentSong = song;
+      try {
+        const resp = await fetch(`/api/notemap?duration=${song.duration}&bpm=${song.bpm}`);
+        const data = await resp.json();
+        noteMap = data.noteMap;
+      } catch {
+        // Fallback: generar localmente (necesitaríamos función generateNoteMap)
+        noteMap = generateLocalNoteMap(song.duration, song.bpm);
       }
-    }
-
-    function startCountdown(seconds) {
-      let remaining = seconds;
-      const countdownEl = document.getElementById('countdown');
-      countdownEl.textContent = remaining;
-      countdownEl.style.display = 'block';
-      countdownInterval = setInterval(() => {
-        remaining--;
-        countdownEl.textContent = remaining > 0 ? remaining : '¡GO!';
-        if (remaining <= 0) {
-          clearInterval(countdownInterval);
-          setTimeout(() => countdownEl.style.display = 'none', 500);
-        }
-      }, 1000);
-    }
-
-    function startGame() {
+      showScreen(null); // ocultar pantallas
+      document.getElementById('score-display').style.display = 'block';
+      resetPlayerStats();
+      // Iniciar audio y juego
       gameRunning = true;
-      notesToRender = noteMap.map(n => ({
-        ...n,
-        x: LANE_X[n.lane],
-        y: HIT_ZONE_Y - (n.time * NOTE_SPEED),
-        hit: false,
-        startTime: songStartTime + n.time,
-        visible: true
+      await loadAndPlayAudio(song.file);
+      songStartTime = Date.now();
+      notesToRender = noteMap.map(note => ({
+        ...note,
+        hit: false, holding: false,
+        x: LANE_X[note.lane]
       }));
-      startAudio();
+      if (!gameLoop) gameLoop = requestAnimationFrame(draw);
     }
 
-    function startAudio() {
-      if (audioCtx) audioCtx.close();
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const bpm = 140; // se podría obtener de la canción actual
-      const beatInterval = 60000 / bpm / 4; // semicorchea
-      let beatIndex = 0;
-      function playTick() {
-        if (!gameRunning) return;
-        const now = audioCtx.currentTime;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.type = 'sine';
-        osc.frequency.value = 800 + Math.sin(beatIndex * 0.3) * 200;
-        gain.gain.setValueAtTime(0.05, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-        osc.start(now);
-        osc.stop(now + 0.05);
-        beatIndex++;
+    function generateLocalNoteMap(durationMs, bpm) {
+      const notes = [];
+      const beatInterval = 60000 / bpm;
+      let time = beatInterval * 2;
+      while (time < durationMs - beatInterval * 2) {
+        const lane = Math.floor(Math.random() * 4);
+        const type = Math.random() < 0.7 ? 'tap' : Math.random() < 0.5 ? 'hold' : 'flick';
+        const holdDuration = type === 'hold' ? beatInterval * (0.5 + Math.random() * 1.5) : 0;
+        notes.push({ lane, type, time: Math.round(time), duration: holdDuration });
+        time += beatInterval * (0.5 + Math.random());
       }
-      playTick();
-      setInterval(playTick, beatInterval);
+      return notes.sort((a,b) => a.time - b.time);
     }
 
-    // Controles
+    // ==================== MODO MULTIJUGADOR ====================
+    function connectToServer() {
+      socket = new WebSocket(WS_URL);
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ type: 'join' }));
+        showScreen('lobby');
+        // Cargar canciones en el lobby
+        const listDiv = document.getElementById('song-list');
+        listDiv.innerHTML = '';
+        predefinedSongs.forEach(song => {
+          const card = document.createElement('div');
+          card.className = 'song-card';
+          card.innerHTML = `
+            <div class="color-bar" style="background:${song.color}"></div>
+            <div style="padding:10px; text-align:center;">
+              <b>${song.title}</b><br>
+              <small>${song.artist}</small><br>
+              <small>${Math.floor(song.duration/1000)}s | ${song.bpm}BPM</small>
+            </div>
+          `;
+          card.onclick = () => socket.send(JSON.stringify({ type: 'selectSong', songId: song.id }));
+          listDiv.appendChild(card);
+        });
+      };
+      socket.onmessage = (event) => handleMultiMessage(JSON.parse(event.data));
+      socket.onclose = () => { if (gameMode === 'multi') showScreen('mode-screen'); };
+    }
+
+    function handleMultiMessage(msg) {
+      switch (msg.type) {
+        case 'songSelected': /* actualizar UI */ break;
+        case 'start':
+          currentSong = predefinedSongs.find(s => s.file === msg.songFile) || { file: msg.songFile, duration: msg.duration };
+          noteMap = msg.noteMap;
+          songStartTime = msg.startTime;
+          showScreen(null);
+          document.getElementById('score-display').style.display = 'block';
+          resetPlayerStats();
+          loadAndPlayAudio(currentSong.file);
+          gameRunning = true;
+          notesToRender = noteMap.map(note => ({ ...note, hit: false, holding: false, x: LANE_X[note.lane] }));
+          if (!gameLoop) gameLoop = requestAnimationFrame(draw);
+          break;
+        case 'hitResult': /* actualizar puntuación */ break;
+        case 'gameOver': /* mostrar resultados */ break;
+        // etc...
+      }
+    }
+
+    // Subida de canción personalizada (multijugador)
+    document.getElementById('upload-btn').addEventListener('click', async () => {
+      const fileInput = document.getElementById('mp3-upload');
+      const bpm = parseInt(document.getElementById('bpm-input').value);
+      const duration = parseInt(document.getElementById('duration-input').value);
+      if (!fileInput.files[0] || !bpm || !duration) return alert('Completa todos los campos');
+      const formData = new FormData();
+      formData.append('song', fileInput.files[0]);
+      const resp = await fetch('/upload', { method: 'POST', body: formData });
+      const { url } = await resp.json();
+      socket.send(JSON.stringify({ type: 'customSong', url, bpm, duration }));
+    });
+
+    // ==================== AUDIO ====================
+    async function loadAndPlayAudio(url) {
+      if (audioCtx) await audioCtx.close();
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      audioSource = audioCtx.createBufferSource();
+      audioSource.buffer = audioBuffer;
+      audioSource.connect(audioCtx.destination);
+      const now = audioCtx.currentTime;
+      const serverNow = Date.now();
+      const delay = (songStartTime - serverNow) / 1000;
+      audioSource.start(now + Math.max(0, delay));
+      startTimeOffset = now + Math.max(0, delay);
+    }
+
+    function stopAudio() {
+      if (audioSource) { try { audioSource.stop(); } catch(e){} }
+      if (audioCtx) audioCtx.close();
+      audioSource = null;
+      audioCtx = null;
+    }
+
+    function getSongTime() {
+      if (!audioCtx || !audioBuffer) return 0;
+      return audioCtx.currentTime - startTimeOffset;
+    }
+
+    // ==================== JUGABILIDAD COMÚN ====================
+    function resetPlayerStats() {
+      score = 0; combo = 0; life = 100; maxCombo = 0;
+      perfect = 0; great = 0; good = 0; miss = 0;
+      updateScoreDisplay();
+    }
+
+    function updateScoreDisplay() {
+      document.getElementById('score-display').innerHTML =
+        `Score: ${score} | ❤️ ${life}% | 🔥 ${combo}`;
+    }
+
+    // Teclas
     const keyMap = { 'd': 0, 'f': 1, 'j': 2, 'k': 3 };
+    const heldNotes = {};
     window.addEventListener('keydown', (e) => {
       if (!gameRunning) return;
       const lane = keyMap[e.key];
-      if (lane !== undefined) {
-        const now = Date.now();
-        const note = notesToRender.find(n => n.lane === lane && !n.hit && Math.abs(now - n.startTime) < 200);
-        if (note) {
-          note.hit = true;
-          const diff = now - note.startTime;
-          let judgement = Math.abs(diff) < 50 ? 'perfect' : Math.abs(diff) < 100 ? 'great' : 'good';
-          socket.send(JSON.stringify({ type: 'hit', lane, type: note.type }));
-          showHitEffect(lane, judgement);
-          updateLocalScore(judgement);
+      if (lane === undefined) return;
+      e.preventDefault();
+      const now = getSongTime() * 1000; // en ms
+      const note = notesToRender.find(n => n.lane === lane && !n.hit && !n.holding && Math.abs(now - n.time) < 250);
+      if (note) {
+        if (note.type === 'hold') {
+          note.holding = true;
+          heldNotes[lane] = note;
+          if (socket) socket.send(JSON.stringify({ type: 'hit', lane, type: 'hold', isHoldRelease: false }));
         } else {
-          socket.send(JSON.stringify({ type: 'hit', lane, type: 'miss' }));
-          showHitEffect(lane, 'miss');
-          updateLocalScore('miss');
+          note.hit = true;
+          const diff = now - note.time;
+          const judgement = Math.abs(diff) < 50 ? 'perfect' : Math.abs(diff) < 100 ? 'great' : 'good';
+          applyJudgement(judgement);
+          showHitEffect(lane, judgement);
+          if (socket) socket.send(JSON.stringify({ type: 'hit', lane, type: note.type }));
         }
-        e.preventDefault();
+      } else {
+        applyJudgement('miss');
+        showHitEffect(lane, 'miss');
+        if (socket) socket.send(JSON.stringify({ type: 'hit', lane, type: 'miss' }));
       }
     });
 
-    function showHitEffect(lane, judgement) {
-      effects.push({ lane, judgement, time: Date.now() });
-    }
+    window.addEventListener('keyup', (e) => {
+      const lane = keyMap[e.key];
+      if (lane === undefined || !heldNotes[lane]) return;
+      const note = heldNotes[lane];
+      note.hit = true;
+      note.holding = false;
+      delete heldNotes[lane];
+      if (socket) socket.send(JSON.stringify({ type: 'hit', lane, type: 'hold', isHoldRelease: true }));
+    });
 
-    function updateLocalScore(judgement) {
+    function applyJudgement(judgement) {
       switch (judgement) {
-        case 'perfect': combo++; score += 1000 + combo * 100; break;
-        case 'great': combo++; score += 500 + combo * 50; break;
-        case 'good': combo = 0; score += 200; break;
-        case 'miss': combo = 0; life = Math.max(0, life - 10); break;
+        case 'perfect': combo++; perfect++; score += 1000 + combo * 100; break;
+        case 'great': combo++; great++; score += 500 + combo * 50; break;
+        case 'good': combo = 0; good++; score += 200; break;
+        case 'miss': combo = 0; miss++; life = Math.max(0, life - 10); break;
       }
-      updateUI();
-    }
-
-    function updateRemotePlayer(msg) {
-      if (msg.playerId === playerId) {
-        score = msg.score;
-        combo = msg.combo;
-        life = msg.life;
-        updateUI();
+      if (combo > maxCombo) maxCombo = combo;
+      updateScoreDisplay();
+      if (life <= 0) {
+        gameRunning = false;
+        stopAudio();
+        showResults();
       }
     }
 
-    function updateUI() {
-      document.getElementById('my-score').textContent = score;
-      document.getElementById('combo').textContent = combo;
-      document.getElementById('life').textContent = life;
+    function showHitEffect(lane, judgement) {
+      const colors = { perfect:'#ffd700', great:'#00ff00', good:'#ffa500', miss:'#ff0000' };
+      const effectDiv = document.getElementById('hit-effects');
+      const el = document.createElement('div');
+      el.className = 'hit-effect';
+      el.style.left = `${LANE_X[lane] - 30}px`;
+      el.style.top = `${HIT_ZONE_Y - 40}px`;
+      el.style.color = colors[judgement];
+      el.textContent = judgement.toUpperCase();
+      effectDiv.appendChild(el);
+      setTimeout(() => el.remove(), 500);
     }
 
-    function updateUIState() {
-      if (gameState !== 'lobby') {
-        document.getElementById('song-select').style.display = 'none';
-      }
+    function showResults() {
+      stopAudio();
+      gameRunning = false;
+      document.getElementById('score-display').style.display = 'none';
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.style.display = 'flex';
+      const pct = (perfect + great + good) / (perfect + great + good + miss || 1) * 100;
+      document.getElementById('results-content').innerHTML = `
+        <p>Score: ${score}</p>
+        <p>Max Combo: ${maxCombo}</p>
+        <p>Perfect: ${perfect} | Great: ${great} | Good: ${good} | Miss: ${miss}</p>
+        <p>Precisión: ${pct.toFixed(1)}%</p>
+      `;
     }
 
+    // ==================== RENDERIZADO ====================
     function draw() {
-      ctx.clearRect(0, 0, 800, 600);
+      if (!gameRunning && !gameLoop) return;
+      ctx.clearRect(0, 0, 900, 600);
+      // Fondo
+      const gradient = ctx.createLinearGradient(0, 0, 0, 600);
+      gradient.addColorStop(0, '#1a1a2e');
+      gradient.addColorStop(1, '#16213e');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 900, 600);
+      // Partículas
+      for (let i = 0; i < 15; i++) {
+        ctx.fillStyle = 'rgba(255,255,255,' + (0.1 + Math.sin(Date.now()*0.002 + i)*0.05) + ')';
+        ctx.beginPath();
+        ctx.arc((i*50 + Date.now()*0.01) % 900, (i*30) % 600, 2, 0, Math.PI*2);
+        ctx.fill();
+      }
       // Carriles
       for (let i = 0; i < LANES; i++) {
-        ctx.strokeStyle = LANE_COLORS[i] + '44';
+        ctx.strokeStyle = '#ffffff22';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(LANE_X[i], 0);
         ctx.lineTo(LANE_X[i], 600);
         ctx.stroke();
-        ctx.fillStyle = LANE_COLORS[i] + 'AA';
-        ctx.fillRect(LANE_X[i] - 20, HIT_ZONE_Y - 5, 40, 10);
+        ctx.fillStyle = '#ffffff55';
+        ctx.fillRect(LANE_X[i] - 25, HIT_ZONE_Y - 3, 50, 6);
       }
       // Notas
-      const now = Date.now();
+      const nowMs = getSongTime() * 1000;
       notesToRender.forEach(note => {
         if (note.hit) return;
-        const elapsed = now - songStartTime;
-        const noteTime = note.time;
-        const y = HIT_ZONE_Y - (noteTime - elapsed) * NOTE_SPEED;
+        const y = HIT_ZONE_Y - (note.time - nowMs) * NOTE_SPEED;
         if (y < -50 || y > 650) return;
-        ctx.fillStyle = LANE_COLORS[note.lane];
+        const x = note.x;
+        ctx.fillStyle = currentSong?.color || '#ff2a6d';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
         if (note.type === 'tap') {
-          ctx.fillRect(note.x - 15, y - 5, 30, 10);
-        } else if (note.type === 'hold') {
-          const endY = HIT_ZONE_Y - (noteTime + note.duration - elapsed) * NOTE_SPEED;
-          ctx.fillRect(note.x - 15, y - 5, 30, Math.max(10, endY - y + 10));
-        } else if (note.type === 'flick') {
           ctx.beginPath();
-          ctx.moveTo(note.x - 15, y - 5);
-          ctx.lineTo(note.x + 5, y - 15);
-          ctx.lineTo(note.x + 15, y - 5);
+          ctx.roundRect(x - 20, y - 6, 40, 12, 6);
+          ctx.fill();
+          ctx.stroke();
+        } else if (note.type === 'hold') {
+          const holdEndY = HIT_ZONE_Y - (note.time + note.duration - nowMs) * NOTE_SPEED;
+          ctx.fillStyle = note.holding ? '#ffff00' : (currentSong?.color || '#ff2a6d');
+          ctx.beginPath();
+          ctx.roundRect(x - 20, y - 6, 40, Math.max(12, holdEndY - y + 12), 6);
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(x, y, 12, 0, Math.PI*2);
+          ctx.fill();
+          ctx.stroke();
+        } else if (note.type === 'flick') {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.beginPath();
+          ctx.moveTo(0, -12);
+          ctx.lineTo(12, 6);
+          ctx.lineTo(-12, 6);
           ctx.closePath();
           ctx.fill();
+          ctx.stroke();
+          ctx.restore();
         }
       });
-      // Efectos
-      effects.forEach(e => {
-        ctx.font = 'bold 20px Arial';
-        ctx.fillStyle = e.judgement === 'perfect' ? 'gold' : e.judgement === 'great' ? 'lime' : e.judgement === 'good' ? 'orange' : 'red';
-        ctx.fillText(e.judgement.toUpperCase(), LANE_X[e.lane] - 25, HIT_ZONE_Y - 40);
-      });
-      // Combo
-      if (combo >= 10) {
-        ctx.font = 'bold 40px Arial';
-        ctx.fillStyle = '#fff';
-        ctx.shadowBlur = 15;
-        ctx.fillText(`${combo} COMBO`, 300, 80);
-        ctx.shadowBlur = 0;
-      }
       requestAnimationFrame(draw);
     }
 
-    connect();
-    draw();
+    // Iniciar
+    showScreen('mode-screen');
+    // Pequeño polyfill para roundRect (por si acaso)
+    if (!ctx.roundRect) {
+      ctx.roundRect = function (x, y, w, h, r) {
+        if (typeof r === 'number') r = { tl: r, tr: r, br: r, bl: r };
+        this.beginPath();
+        this.moveTo(x + r.tl, y);
+        this.lineTo(x + w - r.tr, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r.tr);
+        this.lineTo(x + w, y + h - r.br);
+        this.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
+        this.lineTo(x + r.bl, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r.bl);
+        this.lineTo(x, y + r.tl);
+        this.quadraticCurveTo(x, y, x + r.tl, y);
+        this.closePath();
+      };
+    }
   </script>
 </body>
 </html>
